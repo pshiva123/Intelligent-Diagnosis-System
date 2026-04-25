@@ -5,9 +5,10 @@ import { User, Lock, Activity, ArrowRight, Leaf } from 'lucide-react';
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   
+  // FIX: Synced initial state exactly with the <select> option strings
   const [formData, setFormData] = useState({
     name: '', password: '', age: '', weight: '', height: '', gender: 'Male',
-    digestion: 'Balanced', sleep: 'Deep & Heavy', weather: 'Tolerant', frame: 'Athletic / Medium'
+    digestion: 'Balanced', sleep: 'Deep', weather: 'Tolerant', frame: 'Medium'
   });
   
   const [error, setError] = useState('');
@@ -18,31 +19,54 @@ export default function Auth() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(''); setLoading(true);
+    setError(''); 
+    setLoading(true);
+    
     try {
       if (!isLogin) {
         const response = await fetch("http://localhost:8000/register", {
-          method: "POST", headers: { "Content-Type": "application/json" },
+          method: "POST", 
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            ...formData, age: parseInt(formData.age), weight: parseFloat(formData.weight), height: parseFloat(formData.height)
+            ...formData, 
+            // Fallbacks added to prevent NaN crashes on empty inputs
+            age: parseInt(formData.age) || 0, 
+            weight: parseFloat(formData.weight) || 0, 
+            height: parseFloat(formData.height) || 0
           }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Registration failed");
+        
+        if (!response.ok) {
+          // FIX: Safely parse FastAPI/Pydantic validation arrays
+          const errMsg = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
+          throw new Error(errMsg || "Registration failed");
+        }
+        
         alert('Registration Successful! Please log in.');
         setIsLogin(true); 
       } else {
         const response = await fetch("http://localhost:8000/login", {
-          method: "POST", headers: { "Content-Type": "application/json" },
+          method: "POST", 
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: formData.name, password: formData.password }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Login failed");
+        
+        if (!response.ok) {
+          const errMsg = Array.isArray(data.detail) ? data.detail[0].msg : data.detail;
+          throw new Error(errMsg || "Login failed");
+        }
+        
+        // Perfectly matches the Dashboard.jsx state requirement
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         navigate('/dashboard');
       }
-    } catch (err) { setError(err.message); } 
-    finally { setLoading(false); }
+    } catch (err) { 
+      setError(err.message); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const inputStyle = "w-full mt-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none bg-white text-gray-900 text-sm";
@@ -102,10 +126,10 @@ export default function Auth() {
             {!isLogin && (
               <>
                 <div className="grid grid-cols-4 gap-2 border-t border-gray-100 pt-3">
-                  <div className="col-span-1"><label className={labelStyle}>Age</label><input type="number" name="age" required value={formData.age} onChange={handleChange} className={inputStyle} /></div>
+                  <div className="col-span-1"><label className={labelStyle}>Age</label><input type="number" name="age" min="1" required value={formData.age} onChange={handleChange} className={inputStyle} /></div>
                   <div className="col-span-1"><label className={labelStyle}>Gen</label><select name="gender" value={formData.gender} onChange={handleChange} className={inputStyle}><option>Male</option><option>Female</option></select></div>
-                  <div className="col-span-1"><label className={labelStyle}>Wt</label><input type="number" step="0.1" name="weight" required value={formData.weight} onChange={handleChange} className={inputStyle} /></div>
-                  <div className="col-span-1"><label className={labelStyle}>Ht</label><input type="number" step="0.1" name="height" required value={formData.height} onChange={handleChange} className={inputStyle} /></div>
+                  <div className="col-span-1"><label className={labelStyle}>Wt</label><input type="number" step="0.1" name="weight" min="1" required value={formData.weight} onChange={handleChange} className={inputStyle} /></div>
+                  <div className="col-span-1"><label className={labelStyle}>Ht</label><input type="number" step="0.1" name="height" min="1" required value={formData.height} onChange={handleChange} className={inputStyle} /></div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 border-t border-gray-100 pt-3">

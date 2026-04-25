@@ -1,0 +1,11 @@
+requests
+beautifulsoup4
+lxml
+pandas
+pydantic
+rapidfuzz
+trafilatura
+transformers
+torch
+accelerate
+sentencepiece

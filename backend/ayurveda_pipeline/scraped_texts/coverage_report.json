@@ -1,0 +1,14 @@
+{
+  "Diabetes": true,
+  "Bronchial Asthma": false,
+  "Arthritis": false,
+  "Migraine": false,
+  "GERD": false,
+  "Jaundice": true,
+  "Urinary tract infection": false,
+  "Psoriasis": false,
+  "Common Cold": false,
+  "Typhoid": false,
+  "Dengue": false,
+  "Malaria": false
+}

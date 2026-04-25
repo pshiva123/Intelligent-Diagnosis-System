@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, Leaf, Pill, Stethoscope, LogOut, AlertCircle, BarChart3, Sparkles, CheckCircle2, XCircle, X, ShoppingCart, ShoppingBag, Plus, Minus } from 'lucide-react';
+import { Activity, Leaf, Pill, Stethoscope, LogOut, AlertCircle, BarChart3, Sparkles, CheckCircle2, XCircle, X, ShoppingCart, ShoppingBag, Plus, Minus, HelpCircle, Flame, Clock, Dumbbell, Download } from 'lucide-react';
+import { jsPDF } from "jspdf";
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("diagnosis"); 
   const [inputText, setInputText] = useState("");
+  const [severity, setSeverity] = useState("Medium");
+  const [isPregnant, setIsPregnant] = useState(false);
+  
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [followUpData, setFollowUpData] = useState(null);
   const [error, setError] = useState("");
   const [user, setUser] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
@@ -38,21 +43,99 @@ export default function Dashboard() {
     navigate('/');
   };
 
-  const handlePredict = async (e) => {
-    e.preventDefault();
-    if (!inputText) return;
-    setLoading(true); setError(""); setResult(null);
+  const handlePredict = async (e, isFinalCheck = false) => {
+    if (e) e.preventDefault();
+    console.log("🟢 BUTTON CLICKED! Input text is: ", inputText);
+    console.log("🟢 Sending request to: http://localhost:8000/predict");
+    
+    if (!inputText || inputText.trim() === "") {
+      setError("Please describe your symptoms before running the diagnosis.");
+      return;
+    }
+    
+    setLoading(true); 
+    setError(""); 
+    setResult(null); 
+    setFollowUpData(null);
 
     try {
+      const ageCategory = user?.age <= 12 ? "children" : user?.age >= 50 ? "elderly" : "youth";
+
+      const payload = {
+        text: inputText, 
+        username: user?.name,
+        severity: severity,
+        age_category: ageCategory,
+        gender: user?.gender?.toLowerCase() || "unknown",
+        is_pregnant: isPregnant,
+        is_final_check: isFinalCheck 
+      };
+
       const response = await fetch("http://localhost:8000/predict", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: inputText, username: user.name }), 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload), 
       });
-      if (!response.ok) throw new Error("Server Error");
+      
       const data = await response.json();
-      setResult(data);
+      
+      if (!response.ok || data.status === "error") {
+          throw new Error(data.message || "Server Error");
+      }
+      
+      if (data.status === "needs_more_info" || data.follow_up_symptoms) {
+        setFollowUpData(data);
+      } else {
+        setResult(data);
+      }
     } catch (err) {
-      setError("Failed to connect to the Diagnosis Engine.");
+      setError(err.message || "Failed to connect to the Diagnosis Engine. Is the FastAPI server running?");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFollowUpClick = (sym) => {
+    const cleanSym = sym.replace(/_/g, " ");
+    const newText = `${inputText}. I also have ${cleanSym}.`;
+    setInputText(newText);
+    executeFollowUp(newText);
+  };
+  
+  const executeFollowUp = async (latestText) => {
+    setFollowUpData(null);
+    setLoading(true);
+    setError("");
+
+    try {
+      const ageCategory = user?.age <= 12 ? "children" : user?.age >= 50 ? "elderly" : "youth";
+
+      const payload = {
+        text: latestText,        
+        username: user?.name,
+        severity: severity,
+        age_category: ageCategory,
+        gender: user?.gender?.toLowerCase() || "unknown",
+        is_pregnant: isPregnant,
+        is_final_check: false
+      };
+
+      const response = await fetch("http://localhost:8000/predict", {
+        method: "POST", 
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload), 
+      });
+      
+      const data = await response.json();
+      if (!response.ok || data.status === "error") throw new Error(data.message || "Server Error");
+      
+      if (data.status === "needs_more_info" || data.follow_up_symptoms) {
+        setFollowUpData(data);
+      } else {
+        setResult(data);
+      }
+    } catch (err) {
+      setError(err.message || "Failed to connect to the Diagnosis Engine.");
     } finally {
       setLoading(false);
     }
@@ -74,7 +157,6 @@ export default function Dashboard() {
     }).filter(item => item.qty > 0));
   };
 
-  // 🚀 MATH FIX: Strips out the "₹" symbol so math works properly
   const cleanPrice = (priceStr) => {
     if (!priceStr) return 0;
     const num = parseInt(String(priceStr).replace(/\D/g, ''), 10);
@@ -84,9 +166,6 @@ export default function Dashboard() {
   const cartTotal = cart.reduce((total, item) => total + (cleanPrice(item.price) * item.qty), 0);
   const cartCount = cart.reduce((count, item) => count + item.qty, 0);
 
-  // ==========================================================
-  // 💳 REAL RAZORPAY INTEGRATION LOGIC
-  // ==========================================================
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
       const script = document.createElement("script");
@@ -105,7 +184,6 @@ export default function Dashboard() {
     }
 
     try {
-      // 1. Ask backend to create a Razorpay Order
       const orderResponse = await fetch("http://localhost:8000/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -115,9 +193,8 @@ export default function Dashboard() {
 
       if (!orderResponse.ok) throw new Error(orderData.detail || "Could not create order");
 
-      // 2. Open the Razorpay Checkout Modal
       const options = {
-        key: "rzp_test_SH69Y3GKd8tYN0", // ⚠️ PASTE YOUR rzp_test_ KEY HERE!
+        key: "rzp_test_SH69Y3GKd8tYN0", 
         amount: orderData.amount,
         currency: "INR",
         name: "Ayurvedic Pharmacy",
@@ -125,7 +202,6 @@ export default function Dashboard() {
         image: "https://images.unsplash.com/photo-1512069772995-ec65ed45afd6?auto=format&fit=crop&q=80&w=100", 
         order_id: orderData.order_id,
         handler: async function (response) {
-          // 3. Verify Payment on the Backend
           try {
             const verifyRes = await fetch("http://localhost:8000/verify-payment", {
               method: "POST",
@@ -166,11 +242,258 @@ export default function Dashboard() {
     }
   };
 
+  const closeDiagnosisModal = () => {
+    setResult(null);
+    setFollowUpData(null);
+  };
+
+  const navigateToPharmacy = () => {
+    closeDiagnosisModal();
+    setActiveTab('pharmacy');
+  };
+
+  // --- CLINICAL PDF GENERATION (FIXED & NULL-SAFE) ---
+  const downloadPDFReport = () => {
+    try {
+      if (!user || !result) {
+        console.error("PDF Error: Missing user or result data");
+        return;
+      }
+      
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      const addHeader = (title) => {
+        doc.setFillColor(22, 163, 74); 
+        doc.rect(0, 0, pageWidth, 25, 'F');
+        
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text(title, 20, 16);
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        const today = new Date().toLocaleDateString();
+        doc.text(`Date: ${today}`, pageWidth - 20, 16, { align: 'right' });
+      };
+
+      const addFooter = (pageNum) => {
+        doc.setFillColor(243, 244, 246);
+        doc.rect(0, pageHeight - 15, pageWidth, 15, 'F');
+        doc.setTextColor(107, 114, 128);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "italic");
+        doc.text("Intelligent Ayurvedic Diagnosis System - Confidential Medical Report", 20, pageHeight - 6);
+        doc.text(`Page ${pageNum} of 2`, pageWidth - 20, pageHeight - 6, { align: 'right' });
+      };
+
+      addHeader("CLINICAL DIAGNOSIS REPORT");
+
+      doc.setDrawColor(200, 200, 200);
+      doc.setFillColor(249, 250, 251);
+      doc.roundedRect(20, 35, pageWidth - 40, 22, 3, 3, 'FD');
+      
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text("PATIENT DETAILS", 25, 43);
+      
+      doc.setFont("helvetica", "normal");
+      const safeName = user.name || "Patient";
+      const safeAge = user.age || "N/A";
+      const safeGender = user.gender ? String(user.gender) : "Unknown";
+      const formattedGender = safeGender.charAt(0).toUpperCase() + safeGender.slice(1);
+      
+      doc.text(`Name: ${safeName}`, 25, 52);
+      doc.text(`Age/Gender: ${safeAge} Yrs / ${formattedGender}`, pageWidth / 2, 52);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(22, 163, 74);
+      doc.text("PRIMARY CLINICAL DIAGNOSIS", 20, 75);
+      doc.setDrawColor(22, 163, 74);
+      doc.line(20, 77, pageWidth - 20, 77);
+
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(16);
+      doc.text(`${result.diagnosis?.toUpperCase() || "UNKNOWN CONDITION"}`, 20, 87);
+
+      doc.setFontSize(12);
+      doc.setTextColor(22, 163, 74);
+      doc.text("PRESENTING SYMPTOMS", 20, 105);
+      doc.line(20, 107, pageWidth - 20, 107);
+
+      doc.setTextColor(75, 85, 99);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      const symptomsList = result.extracted_symptoms ? result.extracted_symptoms.map(s => s.replace(/_/g, ' ')) : [];
+      let symY = 117;
+      if (symptomsList.length > 0) {
+        symptomsList.forEach((sym) => {
+          if(sym) {
+            doc.text(`•  ${sym.charAt(0).toUpperCase() + sym.slice(1)}`, 25, symY);
+            symY += 6;
+          }
+        });
+      } else {
+        doc.text("No specific symptoms recorded.", 25, symY);
+        symY += 6;
+      }
+
+      let medY = symY + 10;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(22, 163, 74);
+      doc.text("CLINICAL PRESCRIPTION", 20, medY);
+      doc.line(20, medY + 2, pageWidth - 20, medY + 2);
+      medY += 10;
+
+      doc.setFillColor(243, 244, 246);
+      doc.rect(20, medY, pageWidth - 40, 8, 'F');
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text("S.No", 22, medY + 5.5);
+      doc.text("Recommended Medicine / Herb", 35, medY + 5.5);
+      doc.text("Dosage Instructions", 115, medY + 5.5);
+      
+      medY += 14;
+      doc.setFont("helvetica", "normal");
+      if (result.ayurveda_protocol && Array.isArray(result.ayurveda_protocol)) {
+        result.ayurveda_protocol.forEach((med, index) => {
+          doc.text(`${index + 1}.`, 22, medY);
+          doc.setFont("helvetica", "bold");
+          doc.text(`${med.medicine_name || "Ayurvedic Herb"}`, 35, medY);
+          doc.setFont("helvetica", "normal");
+          
+          const safeDosage = med.dosage ? String(med.dosage) : "Standard Dose";
+          const splitDosage = doc.splitTextToSize(safeDosage, pageWidth - 135);
+          doc.text(splitDosage, 115, medY);
+          
+          medY += (splitDosage.length * 6) + 4;
+        });
+      } else {
+        doc.text("1.", 22, medY);
+        doc.text("Standard Ayurvedic Protocol", 35, medY);
+        doc.text("Please consult your Ayurvedic Physician.", 115, medY);
+      }
+
+      addFooter(1);
+      doc.addPage();
+      addHeader("AYURVEDIC PRAKRITI PROFILE");
+
+      if (user.ayurvedic_profile) {
+        doc.setDrawColor(22, 163, 74);
+        doc.setFillColor(240, 253, 244); 
+        doc.roundedRect(20, 35, pageWidth - 40, 25, 3, 3, 'FD');
+        
+        doc.setTextColor(22, 163, 74);
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text("PRIMARY DOSHA (CONSTITUTION)", 25, 44);
+        
+        doc.setTextColor(31, 41, 55);
+        doc.setFontSize(16);
+        doc.text(`${user.ayurvedic_profile.dosha || "Unknown"}`, 25, 53);
+
+        let py = 75;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(22, 163, 74);
+        doc.text("PHYSIOLOGICAL INSIGHTS", 20, py);
+        doc.line(20, py + 2, pageWidth - 20, py + 2);
+        py += 10;
+
+        doc.setTextColor(31, 41, 55);
+        doc.setFontSize(10);
+        doc.text("Agni (Metabolism):", 20, py);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${user.ayurvedic_profile.metabolism_insight || "Balanced"}`, 65, py);
+        py += 8;
+
+        doc.setFont("helvetica", "bold");
+        doc.text("Vyayama (Exercise):", 20, py);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${user.ayurvedic_profile.ideal_exercise || "Moderate"}`, 65, py);
+        py += 15;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(22, 163, 74);
+        doc.text("CLINICAL DIETARY GUIDELINES", 20, py);
+        doc.line(20, py + 2, pageWidth - 20, py + 2);
+        py += 10;
+
+        const parseArrayFallback = (data, fallback) => {
+          if (!data) return fallback;
+          if (Array.isArray(data)) return data.join(', ');
+          return String(data); 
+        };
+
+        doc.setFontSize(10);
+        doc.setTextColor(21, 128, 61); 
+        doc.text("Pathya (Favorable Foods):", 20, py);
+        doc.setTextColor(31, 41, 55);
+        doc.setFont("helvetica", "normal");
+        const dietDo = parseArrayFallback(user.ayurvedic_profile.diet_do, "Balanced organic diet");
+        const splitDo = doc.splitTextToSize(dietDo, pageWidth - 40);
+        doc.text(splitDo, 20, py + 6);
+        py += (splitDo.length * 5) + 12;
+
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(220, 38, 38); 
+        doc.text("Apathya (Foods to Limit):", 20, py);
+        doc.setTextColor(31, 41, 55);
+        doc.setFont("helvetica", "normal");
+        const dietDont = parseArrayFallback(user.ayurvedic_profile.diet_dont, "Processed/Junk foods");
+        const splitDont = doc.splitTextToSize(dietDont, pageWidth - 40);
+        doc.text(splitDont, 20, py + 6);
+        py += (splitDont.length * 5) + 15;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(22, 163, 74);
+        doc.text("LIFESTYLE & YOGA PROTOCOL", 20, py);
+        doc.line(20, py + 2, pageWidth - 20, py + 2);
+        py += 10;
+
+        doc.setFontSize(10);
+        doc.setTextColor(31, 41, 55);
+        doc.text("Dinacharya (Daily Routine):", 20, py);
+        doc.setFont("helvetica", "normal");
+        const routine = parseArrayFallback(user.ayurvedic_profile.daily_routine, "Maintain standard sleep cycles");
+        const splitRoutine = doc.splitTextToSize(routine, pageWidth - 75);
+        doc.text(splitRoutine, 70, py);
+        py += Math.max(8, splitRoutine.length * 5 + 4);
+
+        doc.setFont("helvetica", "bold");
+        doc.text("Yoga Postures:", 20, py);
+        doc.setFont("helvetica", "normal");
+        const yoga = parseArrayFallback(user.ayurvedic_profile.yoga, "Basic stretching/Surya Namaskar");
+        const splitYoga = doc.splitTextToSize(yoga, pageWidth - 75);
+        doc.text(splitYoga, 70, py);
+      }
+
+      addFooter(2);
+      
+      const fileName = safeName.replace(/\s+/g, '_') + "_Clinical_Report.pdf";
+      doc.save(fileName);
+      
+    } catch (err) {
+      console.error("PDF Generation failed: ", err);
+      alert("Error generating PDF. Check the console for more details.");
+    }
+  };
 
   if (!user) return null;
 
-  const allPredictions = result && result.disease !== "Unknown" 
-    ? [ { disease: result.disease, confidence: result.confidence }, ...(result.alternative_predictions || []) ] : [];
+  let severityColors = "bg-gray-50 border-gray-200";
+  if (severity === "Low") severityColors = "bg-green-50 border-green-200";
+  if (severity === "Medium") severityColors = "bg-amber-50 border-amber-200";
+  if (severity === "High") severityColors = "bg-red-50 border-red-300";
 
   return (
     <div className="h-screen w-full bg-gray-50 flex flex-col font-sans overflow-hidden">
@@ -217,105 +540,63 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden p-6 md:p-8">
+      <main className="flex-1 overflow-hidden p-6 md:p-8 relative">
         
         {activeTab === "diagnosis" && (
-          <div className="flex flex-col md:flex-row gap-6 h-full">
-            <div className={`flex flex-col h-full transition-all duration-500 ${result ? 'w-full md:w-1/3' : 'w-full max-w-3xl mx-auto mt-10'}`}>
-              <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 flex flex-col h-full">
-                <h2 className="flex text-gray-800 font-extrabold text-xl mb-4 items-center border-b pb-3">
-                  <Stethoscope className="w-6 h-6 mr-3 text-blue-500"/> Symptom Analyzer
-                </h2>
-                <textarea
-                  className="w-full flex-1 p-4 border border-gray-300 rounded-xl focus:ring-4 focus:ring-green-500/20 focus:border-green-500 focus:outline-none mb-4 bg-gray-50 text-gray-900 text-lg resize-none"
-                  placeholder="Describe your exact symptoms, duration, and severity..."
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                ></textarea>
-                <button 
-                  onClick={handlePredict} disabled={loading}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white font-extrabold py-4 rounded-xl transition-all disabled:bg-gray-400 flex justify-center items-center text-lg shadow-lg"
-                >
-                  {loading ? <Activity className="animate-spin w-6 h-6 mr-2" /> : "Run Diagnosis Engine"}
-                </button>
-                {error && <p className="mt-3 text-red-500 text-sm font-bold text-center">{error}</p>}
-              </div>
-            </div>
-
-            {result && (
-              <div className="w-full md:w-2/3 h-full overflow-y-auto pr-2 custom-scrollbar space-y-6 pb-6">
-                {result.disease === "Unknown" ? (
-                  <div className="bg-amber-50 border-l-4 border-amber-500 p-6 rounded-r-xl shadow-sm">
-                    <div className="flex items-start">
-                      <AlertCircle className="w-6 h-6 text-amber-600 mr-3 mt-1 shrink-0" />
-                      <div>
-                        <h3 className="text-lg font-bold text-amber-900">Clarification Needed</h3>
-                        <p className="text-amber-800 mt-2 font-medium">{result.follow_up}</p>
-                      </div>
-                    </div>
+          <div className="w-full max-w-3xl mx-auto mt-10 transition-all duration-500">
+            <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-200 flex flex-col">
+              <h2 className="flex text-gray-800 font-extrabold text-2xl mb-6 items-center border-b pb-4">
+                <Stethoscope className="w-8 h-8 mr-3 text-blue-500"/> Describe Your Symptoms
+              </h2>
+              <textarea
+                className="w-full h-48 p-5 border border-gray-300 rounded-2xl focus:ring-4 focus:ring-green-500/20 focus:border-green-500 focus:outline-none mb-6 bg-gray-50 text-gray-900 text-lg resize-none shadow-inner"
+                placeholder="Example: I have a severe fever, chills, a headache, and my body aches..."
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+              ></textarea>
+              
+              <div className="flex gap-6 mb-8 items-center">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Self-Assessed Severity</label>
+                  <select 
+                    className="w-full p-3 border border-gray-300 rounded-xl text-base bg-white focus:ring-2 focus:ring-green-500 shadow-sm"
+                    value={severity} 
+                    onChange={(e) => setSeverity(e.target.value)}
+                  >
+                    <option value="Low">Low (Mild/Bearable)</option>
+                    <option value="Medium">Medium (Moderate)</option>
+                    <option value="High">High (Severe/Intense)</option>
+                  </select>
+                </div>
+                
+                {user.gender?.toLowerCase() === "female" && (
+                  <div className="flex-1 flex items-center mt-6 bg-rose-50 p-3 rounded-xl border border-rose-100">
+                    <input 
+                      type="checkbox" 
+                      id="pregnantCheck" 
+                      checked={isPregnant}
+                      onChange={(e) => setIsPregnant(e.target.checked)}
+                      className="w-6 h-6 text-rose-600 rounded border-rose-300 focus:ring-rose-500"
+                    />
+                    <label htmlFor="pregnantCheck" className="ml-3 text-base font-bold text-rose-900">I am Pregnant</label>
                   </div>
-                ) : (
-                  <>
-                    <div className="bg-white border border-gray-200 p-6 rounded-2xl shadow-md">
-                      <h3 className="text-lg font-extrabold text-gray-800 flex items-center mb-4 border-b pb-2">
-                        <BarChart3 className="w-5 h-5 mr-3 text-blue-500" /> Diagnostic Probabilities
-                      </h3>
-                      <div className="space-y-4">
-                        {allPredictions.map((pred, idx) => (
-                          <div key={idx} className={idx === 0 ? "bg-blue-50 p-4 rounded-xl border border-blue-200" : "p-1"}>
-                            <div className="flex justify-between items-center mb-1">
-                              <span className={`font-extrabold capitalize ${idx === 0 ? 'text-blue-900 text-lg' : 'text-gray-600'}`}>{idx + 1}. {pred.disease}</span>
-                              <span className={`font-bold ${idx === 0 ? 'text-blue-700' : 'text-gray-500'}`}>{pred.confidence}%</span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div className={`h-2 rounded-full ${idx === 0 ? 'bg-blue-500 shadow-md' : 'bg-gray-400'}`} style={{ width: `${pred.confidence}%` }}></div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="bg-white rounded-2xl shadow-md border border-green-200 overflow-hidden">
-                      <div className="bg-green-600 px-6 py-4 flex items-center justify-between">
-                        <h2 className="text-xl font-extrabold text-white flex items-center">
-                          <Leaf className="w-6 h-6 mr-3 text-green-200" /> Protocol for {result.disease}
-                        </h2>
-                        <button onClick={() => setActiveTab('pharmacy')} className="text-sm bg-white text-green-700 font-bold px-3 py-1.5 rounded shadow-sm hover:bg-green-50">Buy Medicines</button>
-                      </div>
-                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div>
-                          <h3 className="text-lg font-extrabold text-gray-800 flex items-center mb-4 border-b pb-2">
-                            <Pill className="w-5 h-5 mr-2 text-green-500" /> Medicines
-                          </h3>
-                          <ul className="space-y-3">
-                            {result.ayurveda?.medicine_names?.length > 0 ? (
-                              result.ayurveda.medicine_names.map((med, idx) => (
-                                <li key={idx} className="flex items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
-                                  <span className="h-6 w-6 rounded-full bg-green-200 text-green-800 flex items-center justify-center text-xs font-bold mr-3">{idx + 1}</span>
-                                  <span className="font-bold text-gray-800">{med}</span>
-                                </li>
-                              ))
-                            ) : <p className="text-sm text-gray-500 italic">No specific medicines.</p>}
-                          </ul>
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-extrabold text-gray-800 flex items-center mb-4 border-b pb-2">
-                            <AlertCircle className="w-5 h-5 mr-2 text-red-500" /> Precautions
-                          </h3>
-                          {result.ayurveda?.precautions?.length > 0 ? (
-                            <div className="bg-red-50 p-4 rounded-xl border border-red-100">
-                              <ul className="list-disc text-sm font-medium text-red-900 space-y-2 ml-4">
-                                {result.ayurveda.precautions.map((tip, idx) => <li key={idx}>{tip}</li>)}
-                              </ul>
-                            </div>
-                          ) : <p className="text-sm text-gray-500 italic">No specific precautions.</p>}
-                        </div>
-                      </div>
-                    </div>
-                  </>
                 )}
               </div>
-            )}
+
+              <button 
+                onClick={(e) => handlePredict(e, false)} disabled={loading}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-extrabold py-5 rounded-2xl transition-all disabled:bg-gray-400 flex justify-center items-center text-xl shadow-lg hover:shadow-xl hover:-translate-y-1"
+              >
+                {loading ? <Activity className="animate-spin w-7 h-7 mr-3" /> : "Run AI Diagnosis"}
+              </button>
+              
+              {error && (
+                <div className="mt-6 flex items-start p-5 bg-amber-50 border border-amber-200 rounded-xl shadow-sm animate-fade-in">
+                  <AlertCircle className="w-6 h-6 text-amber-500 mr-3 shrink-0 mt-0.5" />
+                  <p className="text-amber-900 font-bold text-base leading-relaxed">{error}</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -360,11 +641,145 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-
       </main>
 
+      {(result || followUpData) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/70 backdrop-blur-md p-4 animate-fade-in">
+          <div className="bg-gray-50 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col relative overflow-hidden border border-gray-200">
+            
+            <div className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center z-10 shadow-sm shrink-0">
+              <h2 className="text-2xl font-black text-gray-900 flex items-center">
+                <Activity className="w-6 h-6 mr-3 text-blue-600" /> Clinical Diagnostic Report
+              </h2>
+              <button onClick={closeDiagnosisModal} className="text-gray-400 hover:text-red-500 bg-gray-100 hover:bg-red-50 p-2 rounded-full transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 md:p-8 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+              
+              {followUpData && (
+                <div className="bg-amber-50 border-2 border-amber-200 p-6 rounded-2xl shadow-sm">
+                  <div className="flex items-start">
+                    <HelpCircle className="w-8 h-8 text-amber-600 mr-4 mt-1 shrink-0" />
+                    <div>
+                      <h3 className="text-xl font-black text-amber-900">Clarification Needed</h3>
+                      <p className="text-amber-800 mt-2 text-lg font-medium">{followUpData.message}</p>
+                      
+                      <div className="flex flex-wrap gap-3 mt-6">
+                        {followUpData.follow_up_symptoms?.map((sym, idx) => (
+                          <button 
+                            key={idx}
+                            onClick={() => handleFollowUpClick(sym)}
+                            className="px-5 py-3 bg-white border-2 border-amber-300 text-amber-800 rounded-xl hover:bg-amber-100 hover:border-amber-400 font-bold transition shadow-sm text-base"
+                          >
+                            + Yes, I have {sym.replace(/_/g, " ")}
+                          </button>
+                        ))}
+                        
+                        <button 
+                            onClick={(e) => handlePredict(e, true)}
+                            className="px-5 py-3 bg-gray-200 border-2 border-gray-300 text-gray-700 rounded-xl hover:bg-gray-300 hover:text-gray-900 font-bold transition shadow-sm text-base"
+                          >
+                            None of these
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {result && !followUpData && (
+                <>
+                  <div className="bg-blue-50 border border-blue-200 p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div>
+                      <span className="text-xs font-black text-blue-500 uppercase tracking-widest">Predicted Condition</span>
+                      <h3 className="text-3xl font-black text-blue-900 uppercase">{result.diagnosis}</h3>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <button 
+                        onClick={downloadPDFReport}
+                        className="flex items-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-5 rounded-xl transition-all shadow-md"
+                      >
+                        <Download className="w-5 h-5 mr-2" />
+                        Download PDF Report
+                      </button>
+                    </div>
+                  </div>
+
+                  {result.explanation && result.explanation.length > 0 && (
+                    <div className="bg-gray-50 border border-indigo-100 p-6 rounded-2xl mt-4">
+                      <h4 className="font-extrabold text-indigo-900 flex items-center mb-4">
+                        <BarChart3 className="w-5 h-5 mr-2" /> AI Clinical Reasoning (SHAP)
+                      </h4>
+                      <div className="space-y-4">
+                        {result.explanation.map((item, idx) => (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex justify-between text-xs font-bold uppercase text-gray-600">
+                              <span>{item.symptom}</span>
+                              <span className="text-indigo-600">Impact: {item.impact}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                              <div 
+                                className="bg-indigo-600 h-full rounded-full transition-all duration-1000" 
+                                style={{ width: `${Math.min(Math.abs(item.impact) * 90, 100)}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-white rounded-2xl shadow-sm border border-green-200 overflow-hidden">
+                    <div className="bg-green-600 px-6 py-5 flex items-center justify-between">
+                      <h2 className="text-xl font-black text-white flex items-center">
+                        <Leaf className="w-6 h-6 mr-3 text-green-200" /> Ayurvedic Protocol
+                      </h2>
+                      <button onClick={navigateToPharmacy} className="text-sm bg-white text-green-800 font-extrabold px-4 py-2 rounded-lg shadow-md hover:bg-green-50 transition-colors">Buy Medicines</button>
+                    </div>
+                    
+                    <div className="p-6">
+                      <h3 className="text-lg font-extrabold text-gray-800 flex items-center mb-5 border-b pb-3">
+                        <Pill className="w-6 h-6 mr-3 text-green-500" /> Prescribed Medicines & Herbs
+                      </h3>
+                      
+                      <div className="grid md:grid-cols-2 gap-5">
+                        <div className="p-5 bg-gray-50 rounded-xl border border-gray-200 shadow-sm">
+                          <span className="text-xs font-black text-gray-500 uppercase block mb-2 tracking-wider">Age Specific Protocol</span>
+                          <p className="font-bold text-gray-800">
+                            {Array.isArray(result.ayurveda_protocol) && result.ayurveda_protocol.length > 0
+                              ? result.ayurveda_protocol.map(p => p.medicine_name).join(", ") 
+                              : "Consult Ayurvedic Physician"}
+                          </p>
+                        </div>
+                        <div className={`p-5 rounded-xl border shadow-sm ${severityColors}`}>
+                          <span className={`text-xs font-black uppercase block mb-2 tracking-wider ${severity === 'High' ? 'text-red-600' : 'text-gray-500'}`}>Severity Specific ({severity})</span>
+                          <p className="text-gray-900 font-bold text-lg">
+                            {Array.isArray(result.ayurveda_protocol) && result.ayurveda_protocol.length > 0 
+                              ? result.ayurveda_protocol.map(p => p.dosage).join(", ") 
+                              : "Standard Protocol"}
+                          </p>
+                          {severity === "High" && <p className="text-xs text-red-600 font-bold mt-3">⚠️ Seek immediate medical supervision alongside this treatment.</p>}
+                        </div>
+                        <div className="p-5 bg-red-50 rounded-xl border border-red-100 md:col-span-2 shadow-sm">
+                          <span className="text-xs font-black text-red-600 uppercase block mb-2 flex items-center tracking-wider"><AlertCircle className="w-4 h-4 mr-1.5"/> Pregnancy Contraindications</span>
+                          <p className="text-red-900 font-bold text-base">
+                            {Array.isArray(result.prescription?.pregnancy_status) ? result.prescription.pregnancy_status.join(", ") : "None listed"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCart && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-gray-900/60 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[60] flex justify-end bg-gray-900/60 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-slide-in-right">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
               <h2 className="text-2xl font-black text-gray-900 flex items-center">
@@ -420,71 +835,122 @@ export default function Dashboard() {
       )}
 
       {showProfile && user.ayurvedic_profile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 backdrop-blur-sm p-4 animate-fade-in">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col relative">
-            <button onClick={() => setShowProfile(false)} className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/80 text-white p-2 rounded-full backdrop-blur-md transition-all">
+            <button 
+              onClick={() => setShowProfile(false)} 
+              className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/80 text-white p-2 rounded-full backdrop-blur-md transition-all"
+            >
               <X className="w-6 h-6" />
             </button>
-            <div className="flex flex-col lg:flex-row h-full overflow-y-auto">
-              
+            
+            <div className="flex flex-col lg:flex-row h-full overflow-y-auto custom-scrollbar">
               <div className="lg:w-2/5 h-64 lg:h-auto relative shrink-0">
                 <img 
                   src={
-                    user.ayurvedic_profile.dosha.toLowerCase().includes('vata') 
+                    user.ayurvedic_profile.dosha?.toLowerCase().includes('vata') 
                       ? "https://images.unsplash.com/photo-1545389336-eaee207e3713?auto=format&fit=crop&q=80&w=1000"
-                    : user.ayurvedic_profile.dosha.toLowerCase().includes('pitta')
+                    : user.ayurvedic_profile.dosha?.toLowerCase().includes('pitta')
                       ? "https://images.unsplash.com/photo-1599901860904-17e6ed7083a0?auto=format&fit=crop&q=80&w=1000"
                     : "https://images.unsplash.com/photo-1575052814086-f385e2e2ad1b?auto=format&fit=crop&q=80&w=1000"
                   } 
-                  alt="Yoga" className="absolute inset-0 w-full h-full object-cover"
+                  alt="Ayurvedic Element" 
+                  className="absolute inset-0 w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-emerald-900/90 to-transparent flex items-end p-8">
                   <div>
-                    <span className="bg-emerald-500/80 text-white text-xs font-bold uppercase px-3 py-1 rounded-full border border-emerald-400">AI Curated</span>
-                    <h2 className="text-5xl font-black text-white mt-2">{user.ayurvedic_profile.dosha}</h2>
+                    <span className="bg-emerald-500/80 text-white text-[10px] font-bold uppercase px-3 py-1 rounded-full border border-emerald-400 tracking-wider">
+                      Fine-Tuned Analysis
+                    </span>
+                    <h2 className="text-4xl lg:text-5xl font-black text-white mt-2 leading-tight">
+                      {user.ayurvedic_profile.dosha}
+                    </h2>
                   </div>
                 </div>
               </div>
 
-              <div className="lg:w-3/5 p-8 flex flex-col justify-center">
-                <p className="text-gray-700 text-lg font-medium mb-6 italic border-l-4 border-emerald-500 pl-4 bg-emerald-50 py-3 pr-3 rounded-r-lg">
+              <div className="lg:w-3/5 p-6 lg:p-8 flex flex-col justify-start bg-white">
+                <p className="text-gray-700 text-sm md:text-base font-medium mb-5 italic border-l-4 border-emerald-500 pl-4 bg-emerald-50 py-3 pr-3 rounded-r-lg leading-relaxed">
                   "{user.ayurvedic_profile.description}"
                 </p>
                 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
-                  <div>
-                    <h3 className="font-extrabold text-gray-900 flex items-center border-b pb-2 mb-3">
-                      <CheckCircle2 className="w-5 h-5 mr-2 text-green-500"/> Favorable Diet
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                  {user.ayurvedic_profile.metabolism_insight && (
+                    <div className="bg-orange-50 border border-orange-200 p-3 lg:p-4 rounded-xl">
+                      <h4 className="text-orange-800 font-extrabold flex items-center text-xs mb-1.5 uppercase tracking-wide">
+                        <Flame className="w-4 h-4 mr-1.5"/> Agni (Metabolism)
+                      </h4>
+                      <p className="text-orange-900 text-xs font-medium leading-snug">
+                        {user.ayurvedic_profile.metabolism_insight}
+                      </p>
+                    </div>
+                  )}
+                  {user.ayurvedic_profile.ideal_exercise && (
+                    <div className="bg-blue-50 border border-blue-200 p-3 lg:p-4 rounded-xl">
+                      <h4 className="text-blue-800 font-extrabold flex items-center text-xs mb-1.5 uppercase tracking-wide">
+                        <Dumbbell className="w-4 h-4 mr-1.5"/> Vyayama (Exercise)
+                      </h4>
+                      <p className="text-blue-900 text-xs font-medium leading-snug">
+                        {user.ayurvedic_profile.ideal_exercise}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                  <div className="bg-white border border-gray-100 p-4 rounded-xl shadow-sm">
+                    <h3 className="font-extrabold text-gray-900 flex items-center border-b pb-2 mb-3 text-sm uppercase">
+                      <CheckCircle2 className="w-4 h-4 mr-2 text-green-500"/> Favorable Diet
                     </h3>
                     <ul className="space-y-2">
                       {Array.isArray(user.ayurvedic_profile.diet_do) ? user.ayurvedic_profile.diet_do.map((item, i) => (
-                        <li key={i} className="flex text-sm text-gray-700"><span className="text-green-500 mr-2">•</span> {item}</li>
-                      )) : <li className="text-sm text-gray-700">{user.ayurvedic_profile.diet_do}</li>}
+                        <li key={i} className="flex text-xs text-gray-700 font-medium items-start">
+                          <span className="text-green-500 mr-2">•</span> {item}
+                        </li>
+                      )) : <li className="text-xs text-gray-700">{user.ayurvedic_profile.diet_do}</li>}
                     </ul>
                   </div>
-                  <div>
-                    <h3 className="font-extrabold text-gray-900 flex items-center border-b pb-2 mb-3">
-                      <XCircle className="w-5 h-5 mr-2 text-red-500"/> Foods to Limit
+                  <div className="bg-white border border-gray-100 p-4 rounded-xl shadow-sm">
+                    <h3 className="font-extrabold text-gray-900 flex items-center border-b pb-2 mb-3 text-sm uppercase">
+                      <XCircle className="w-4 h-4 mr-2 text-red-500"/> Foods to Limit
                     </h3>
                     <ul className="space-y-2">
                       {Array.isArray(user.ayurvedic_profile.diet_dont) ? user.ayurvedic_profile.diet_dont.map((item, i) => (
-                        <li key={i} className="flex text-sm text-gray-700"><span className="text-red-400 mr-2">•</span> {item}</li>
-                      )) : <li className="text-sm text-gray-700">{user.ayurvedic_profile.diet_dont}</li>}
+                        <li key={i} className="flex text-xs text-gray-700 font-medium items-start">
+                          <span className="text-red-400 mr-2">•</span> {item}
+                        </li>
+                      )) : <li className="text-xs text-gray-700">{user.ayurvedic_profile.diet_dont}</li>}
                     </ul>
                   </div>
                 </div>
 
-                <div className="bg-blue-50 p-5 rounded-xl border border-blue-100">
-                  <h3 className="font-extrabold text-blue-900 flex items-center mb-3">
-                    <Activity className="w-5 h-5 mr-2 text-blue-600"/> Recommended Yoga
+                {user.ayurvedic_profile.daily_routine && (
+                  <div className="mb-5 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                    <h3 className="font-extrabold text-indigo-900 flex items-center mb-3 text-sm uppercase">
+                        <Clock className="w-4 h-4 mr-2 text-indigo-500"/> Dinacharya (Daily Routine)
+                    </h3>
+                    <div className="flex flex-col space-y-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+                        {Array.isArray(user.ayurvedic_profile.daily_routine) ? user.ayurvedic_profile.daily_routine.map((habit, idx) => (
+                          <div key={idx} className="flex items-start bg-white border border-indigo-100 p-2.5 rounded-lg shadow-sm">
+                            <div className="h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-black mr-3 shrink-0 mt-0.5">{idx + 1}</div>
+                            <span className="text-xs text-gray-800 font-medium leading-relaxed">{habit}</span>
+                          </div>
+                        )) : <p className="text-xs text-gray-600">{user.ayurvedic_profile.daily_routine}</p>}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-teal-50 p-4 rounded-xl border border-teal-100">
+                  <h3 className="font-extrabold text-teal-900 flex items-center mb-3 text-sm uppercase">
+                    <Activity className="w-4 h-4 mr-2 text-teal-600"/> Recommended Yoga Postures
                   </h3>
-                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {Array.isArray(user.ayurvedic_profile.yoga) ? user.ayurvedic_profile.yoga.map((item, i) => (
-                      <li key={i} className="flex items-center text-sm text-blue-900 font-bold bg-white px-3 py-2 rounded-lg shadow-sm border border-blue-100">
-                        <Leaf className="w-4 h-4 mr-2 text-blue-500 shrink-0" /> {item}
-                      </li>
-                    )) : <p className="text-sm text-blue-800">{user.ayurvedic_profile.yoga}</p>}
-                  </ul>
+                      <span key={i} className="text-[11px] text-teal-900 font-bold bg-white px-2.5 py-1.5 rounded-md shadow-sm border border-teal-200">
+                        {item}
+                      </span>
+                    )) : <span className="text-xs text-teal-800">{user.ayurvedic_profile.yoga}</span>}
+                  </div>
                 </div>
 
               </div>

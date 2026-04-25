@@ -1,36 +1,65 @@
-from fastapi import FastAPI
+import sys
+import os
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import pickle
-import os
+import joblib
+import pandas as pd
+import numpy as np
 import json
+import ssl
 from datetime import datetime
-from app.symptom_nlp import extract_symptoms_from_text
-
 from pymongo import MongoClient
-import bcrypt  
+import bcrypt
 from dotenv import load_dotenv
-from fastapi import HTTPException
-from google import genai
-from google.genai import types
-
 import razorpay
+import shap 
+from thefuzz import process
+import google.generativeai as genai 
+import itertools
+
+# Directory path configurations
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+
+# Initialize Primary Clinical Interceptor
+try:
+    from clinical_rules import get_heuristic_diagnosis
+    print("INFO: Primary Clinical Interceptor loaded successfully.")
+except ImportError as e:
+    print(f"WARN: Primary Interceptor unavailable. Operating on strict ML pipeline. Error: {e}")
+    def get_heuristic_diagnosis(syms): return None
+
+# Initialize NLP Pipeline
+try:
+    from app.symptom_nlp import extract_and_map_symptoms
+except ImportError:
+    def extract_and_map_symptoms(text): return [], "medium"
 
 load_dotenv() 
 
-app = FastAPI()
+app = FastAPI(title="Intelligent Ayurvedic Diagnosis API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ==========================================
+# DATA MODELS
+# ==========================================
 class UserInput(BaseModel):
     text: str
     username: str
+    age_category: str  
+    gender: str        
+    is_pregnant: bool
+    severity: str
+    is_final_check: bool = False  
 
 class UserRegister(BaseModel):
     name: str
@@ -39,16 +68,18 @@ class UserRegister(BaseModel):
     gender: str
     weight: float
     height: float
-    digestion: str
-    sleep: str
-    weather: str
-    frame: str
+    digestion: str = "Balanced"
+    sleep: str = "Moderate"
+    weather: str = "Tolerant"
+    frame: str = "Medium"
 
 class UserLogin(BaseModel):
     name: str
     password: str
 
-# --- DATABASE SETUP ---
+# ==========================================
+# DATABASE & ARTIFACT INITIALIZATION
+# ==========================================
 MONGO_URI = os.getenv("MONGO_URI")
 try:
     client = MongoClient(MONGO_URI)
@@ -56,133 +87,358 @@ try:
     users_collection = db["users"]   
     logs_collection = db["diagnostic_logs"] 
     orders_collection = db["orders"]        
-    inventory_collection = db["pharmacy_products_final"] # Our newly seeded collection!
-    print("✅ Connected to MongoDB Atlas")
+    inventory_collection = db["pharmacy_products_final"]
+    print("INFO: Connected to MongoDB Atlas Cluster.")
 except Exception as e:
-    print(f"❌ MongoDB Connection Error: {e}")
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(current_dir, "../models/disease_model.pkl")
-encoder_path = os.path.join(current_dir, "../models/label_encoder.pkl")
-kb_path = os.path.join(current_dir, "../data/ayurveda_kb_final.json")
+    print(f"ERROR: MongoDB Connection Failed: {e}")
 
 try:
-    with open(model_path, "rb") as f: model = pickle.load(f)
-    with open(encoder_path, "rb") as f: le = pickle.load(f)
-    print("✅ ML Model Loaded")
-except Exception as e: model = None
+    print("INFO: Loading Multi-Model Ensemble Engine...")
+    model = joblib.load(os.path.join(current_dir, "../models/ensemble_model.pkl"))
+    xgb_base = joblib.load(os.path.join(current_dir, "../models/xgboost_base_model.pkl"))
+    le = joblib.load(os.path.join(current_dir, "../models/label_encoder.pkl"))
+    symptoms_list = joblib.load(os.path.join(current_dir, "../models/symptoms_list.pkl"))
+    critical_diseases = joblib.load(os.path.join(current_dir, "../models/critical_diseases.pkl"))
+    print("INFO: ML Artifacts and Security Protocols Loaded.")
+except Exception as e: 
+    print(f"ERROR: ML Artifact Load Failure: {e}")
+    critical_diseases = ['Heart attack', 'Paralysis (brain hemorrhage)']
+    model = xgb_base = le = None
+    symptoms_list = [] 
+
+def _normalize_list(value):
+    if isinstance(value, str):
+        return [value.strip().lower()]
+    if isinstance(value, list):
+        return [str(v).strip().lower() for v in value if str(v).strip()]
+    return []
+
+# YOUR CUSTOM DB BUILDER
+def _build_db_from_medicine_master(master_data):
+    ages = ["young", "middle", "elder"]
+    genders = ["male", "female"]
+    severities = ["low", "medium", "high"]
+    structured = {}
+
+    for disease, medicines in master_data.items():
+        disease_key = str(disease).strip()
+        if not disease_key or not isinstance(medicines, list):
+            continue
+        disease_bucket = {}
+
+        for age, gender, severity in itertools.product(ages, genders, severities):
+            combo_key = f"{age}_{gender}_{severity}"
+            candidates = []
+            for med in medicines:
+                if not isinstance(med, dict):
+                    continue
+
+                allowed_ages = _normalize_list(med.get("allowed_ages", ["all"]))
+                allowed_genders = _normalize_list(med.get("allowed_genders", ["all"]))
+                allowed_severities = _normalize_list(med.get("allowed_severities", ["low", "medium", "high"]))
+
+                age_ok = "all" in allowed_ages or age in allowed_ages
+                gender_ok = "all" in allowed_genders or gender in allowed_genders
+                severity_ok = "all" in allowed_severities or severity in allowed_severities
+                if not (age_ok and gender_ok and severity_ok):
+                    continue
+
+                candidates.append(
+                    {
+                        "medicine_name": med.get("medicine_name", "Ayurvedic Protocol"),
+                        "dosage": med.get("dosage", "Standard Dose"),
+                        "formulation_type": med.get("formulation_type", "classical"),
+                        "dosha_type": med.get("dosha_type", "tridosha"),
+                        "herb_sanskrit": med.get("herb_sanskrit", []),
+                    }
+                )
+            disease_bucket[combo_key] = candidates
+        structured[disease_key] = disease_bucket
+    return structured
 
 try:
-    with open(kb_path, "r", encoding="utf-8") as f: ayurveda_db = json.load(f)
-    print("✅ Ayurveda DB Loaded")
-except Exception as e: ayurveda_db = {}
+    kb_path = os.path.join(current_dir, "../ayurveda_pipeline/output/ayurveda_kb_structured.json")
+    with open(kb_path, "r", encoding="utf-8") as f:
+        ayurveda_db = json.load(f)
+    print("INFO: Ayurveda Medical Ontology Indexed from output KB.")
+except Exception:
+    try:
+        master_path = os.path.join(current_dir, "../ayurveda_pipeline/medicine_master.json")
+        with open(master_path, "r", encoding="utf-8") as f:
+            master_data = json.load(f)
+        ayurveda_db = _build_db_from_medicine_master(master_data)
+        print("INFO: Ayurveda protocol loaded from medicine_master.json.")
+    except Exception as e:
+        print(f"WARN: Ayurveda KB unavailable: {e}")
+        ayurveda_db = {}
 
-gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# ==========================================
+# GENERATIVE AI PROFILING CONFIGURATION
+# ==========================================
+try:
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    print("INFO: Generative Profiling API Ready.")
+except Exception as e:
+    gemini_model = None
 
-# ==========================================================
-# 🛒 ZERO-LATENCY STORE ENDPOINT
-# ==========================================================
-@app.get("/medicines")
-def get_all_medicines():
-    """Fetches the pre-built AI store catalog from MongoDB instantly."""
-    products = list(inventory_collection.find({}, {"_id": 0}))
-    return {"products": products}
-
-# ==========================================================
-# 🌿 GENERATIVE AI DOSHA ENGINE
-# ==========================================================
 def generate_ayurvedic_profile(user_data: UserRegister):
     height_m = user_data.height / 100.0
     bmi = round(user_data.weight / (height_m ** 2), 1)
-    
-    prompt = f"""
-    Act as an expert Ayurvedic doctor. Analyze this patient:
-    Age: {user_data.age}, Gender: {user_data.gender}, BMI: {bmi}, 
-    Body Frame: {user_data.frame}, Digestion: {user_data.digestion}, 
-    Sleep: {user_data.sleep}, Weather: {user_data.weather}.
-    
-    Task 1: Determine their primary Ayurvedic Dosha.
-    Task 2: Build a practical, daily Ayurvedic Lifestyle Plan.
-    
-    CRITICAL INSTRUCTION: For arrays (diet_do, diet_dont, yoga), PROVIDE EXACTLY 3 BULLET POINTS UNDER 10 WORDS. NO LONG SENTENCES.
-    
-    Return EXACTLY JSON format:
-    {{
-        "dosha": "Name of Dosha",
-        "description": "A highly detailed, engaging 3-sentence paragraph explaining their body type.",
-        "diet_do": ["Short item 1", "Short item 2", "Short item 3"],
-        "diet_dont": ["Short item 1", "Short item 2", "Short item 3"],
-        "yoga": ["Specific yoga pose 1", "Specific yoga pose 2", "Specific yoga pose 3"]
-    }}
-    """
+    prompt = f"Expert Ayurvedic doctor. Profile: {user_data.dict()}, BMI: {bmi}. Respond STRICTLY with a JSON object."
     try:
-        response = gemini_client.models.generate_content(
-            model='gemini-2.5-flash', contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json")
-        )
-        return json.loads(response.text)
-    except Exception as e:
-        return {"dosha": "Analysis Failed", "description": "System Offline.", "diet_do": [], "diet_dont": [], "yoga": []}
+        response = gemini_model.generate_content(prompt)
+        raw_text = response.text.strip()
+        if "{" in raw_text:
+            raw_text = raw_text[raw_text.find("{"):raw_text.rfind("}")+1]
+        return json.loads(raw_text)
+    except:
+        return {"dosha": "Vata-Kapha", "description": "Fallback profile generated."}
 
-# ==========================================================
-# 🩺 ML DISEASE PREDICTION ENDPOINT
-# ==========================================================
+@app.get("/medicines")
+def get_all_medicines():
+    return {"products": list(inventory_collection.find({}, {"_id": 0}))}
+
+# ==========================================
+# AI DIAGNOSTIC ENDPOINT
+# ==========================================
 @app.post("/predict")
 def predict_disease(data: UserInput):
-    if not model: return {"error": "Model not loaded"}
+    try:
+        if not model: 
+            return {"error": "Model not loaded"}
 
-    input_vector, detected_symptoms, metadata = extract_symptoms_from_text(data.text)
-    
-    if len(detected_symptoms) < 2:
-        reason = "I couldn't detect any specific medical symptoms in your text." if len(detected_symptoms) == 0 else f"You only mentioned '{detected_symptoms[0].replace('_', ' ')}'. A single symptom is too broad for an accurate diagnosis."
-        logs_collection.insert_one({"username": data.username, "symptoms": data.text, "predicted_disease": "Blocked by Guardrail", "confidence": 0, "timestamp": datetime.now()})
-        return {"disease": "Unknown", "confidence": 0, "detected_symptoms": detected_symptoms, "metadata": metadata, "alternative_predictions": [], "follow_up": f"{reason} Please describe your condition in more detail.", "ayurveda": {}}
+        force_skip = "skip_followup" in data.text.lower()
+        clean_text = data.text.replace("skip_followup.", "").strip()
 
-    probabilities = model.predict_proba([input_vector])[0]
-    predictions = [{"disease": le.inverse_transform([idx])[0].strip(), "confidence": prob * 100} for idx, prob in enumerate(probabilities) if prob > 0]
+        valid_symptoms, detected_severity = extract_and_map_symptoms(clean_text)
+        
+        if not valid_symptoms:
+            if data.is_final_check:
+                return {"status": "error", "message": "Without any recognized symptoms, I cannot safely provide a diagnosis. Please try describing your condition using specific medical terms."}
             
-    for p in predictions:
-        disease = p["disease"]
-        if "yellowish_skin" in detected_symptoms and "yellowing_of_eyes" in detected_symptoms:
-            if disease == "Jaundice" and "itching" not in detected_symptoms: p["confidence"] += 50.0  
-            elif disease == "Chronic cholestasis" and "itching" in detected_symptoms: p["confidence"] += 50.0 
-        if "joint_pain" in detected_symptoms and "skin_rash" in detected_symptoms:
-            if disease == "Dengue": p["confidence"] += 30.0
+            fallback_pool = ["headache", "high_fever", "stomach_pain", "fatigue", "nausea", "chills", "cough"]
+            suggestions = [s for s in fallback_pool if s in symptoms_list]
+            if len(suggestions) < 4 and len(symptoms_list) > 0:
+                extra = [s for s in symptoms_list if s not in suggestions]
+                suggestions.extend(extra[:4 - len(suggestions)])
+                
+            return {
+                "status": "needs_more_info",
+                "message": "I didn't quite catch any specific medical symptoms from your description. To help me diagnose you, are you experiencing any of these common issues?",
+                "follow_up_symptoms": suggestions[:5],
+                "extracted_symptoms": [],
+                "current_top_prediction": "Unknown",
+                "confidence": 0.0
+            }
 
-    predictions = sorted(predictions, key=lambda x: x["confidence"], reverse=True)[:3]
-    total_conf = sum(p["confidence"] for p in predictions)
-    if total_conf > 0:
-        for p in predictions: p["confidence"] = round((p["confidence"] / total_conf) * 100, 1)
+        # Phase 1: Fast-Track Clinical Interceptor
+        top_disease = get_heuristic_diagnosis(valid_symptoms)
+        feature_contributions = []
+        
+        if top_disease:
+            print(f"INFO: High-confidence primary match established: {top_disease}")
+            confidence = 0.98 
+            
+        else:
+            # Phase 2: Probabilistic Ensemble Inference
+            print("INFO: Initiating Deep-Feature Ensemble ML Analysis...")
+            
+            if hasattr(model, 'feature_names_in_'):
+                expected_features = list(model.feature_names_in_)
+            else:
+                expected_features = symptoms_list
 
-    top_disease, top_confidence = predictions[0]["disease"], predictions[0]["confidence"]
-    follow_up = f"Confidence is split. It is most likely {top_disease} ({top_confidence}%), but symptoms also align with {predictions[1]['disease']} ({predictions[1]['confidence']}%)." if top_confidence < 80.0 and len(predictions) > 1 else None
+            input_dict = {sym: 0 for sym in expected_features}
+            for symptom in valid_symptoms:
+                if symptom in input_dict:
+                    input_dict[symptom] = 1
+                    
+            input_df = pd.DataFrame([input_dict], columns=expected_features)
+            raw_probabilities = model.predict_proba(input_df)[0]
+            temp = 1.00 
+            scaled_probs = np.exp(raw_probabilities / temp) / np.sum(np.exp(raw_probabilities / temp))
+            
+            if data.is_final_check:
+                for idx, cls_label in enumerate(model.classes_):
+                    decoded_name = le.inverse_transform([cls_label])[0]
+                    if decoded_name in critical_diseases:
+                        scaled_probs[idx] = 0.0 
 
-    ayurveda_info = ayurveda_db.get(top_disease)
-    if not ayurveda_info:
-        for key, kb_data in ayurveda_db.items():
-            if top_disease.lower() in key.lower() or key.lower() in top_disease.lower():
-                ayurveda_info = kb_data
-                break
-    if not ayurveda_info: ayurveda_info = {"medicine_names": [], "precautions": ["No specific Ayurvedic data found."], "source": "System"}
+            top_position = int(np.argmax(scaled_probs))
+            actual_class_label = model.classes_[top_position]
+            top_disease = le.inverse_transform([actual_class_label])[0]
+            
+            if data.is_final_check:
+                confidence = scaled_probs[top_position] / (np.sum(scaled_probs) + 1e-9)
+            else:
+                confidence = scaled_probs[top_position]
 
-    logs_collection.insert_one({"username": data.username, "symptoms": data.text, "predicted_disease": top_disease, "confidence": top_confidence, "timestamp": datetime.now()})
+            # XAI Feature Impact Calculation (SHAP)
+            if xgb_base:
+                try:
+                    explainer = shap.TreeExplainer(xgb_base)
+                    shap_values = explainer.shap_values(input_df)
+                    impact_array = shap_values[top_position][0] if isinstance(shap_values, list) else shap_values[0]
+                    for i, feature in enumerate(expected_features):
+                        if input_df[feature].iloc[0] == 1:
+                            feature_contributions.append({
+                                "symptom": feature.replace('_', ' ').title(),
+                                "impact_score": round(float(impact_array[i]), 4)
+                            })
+                    feature_contributions = sorted(feature_contributions, key=lambda x: x['impact_score'], reverse=True)
+                except: pass
 
-    return {"disease": top_disease, "confidence": top_confidence, "alternative_predictions": predictions[1:], "follow_up": follow_up, "detected_symptoms": detected_symptoms, "metadata": metadata, "ayurveda": ayurveda_info}
+        # Phase 3: Clinical Safety & Doctor Clarification Routing
+        if not data.is_final_check:
+            if top_disease in critical_diseases and len(valid_symptoms) < 3:
+                return {
+                    "status": "needs_more_info",
+                    "message": f"A {valid_symptoms[0].replace('_', ' ')} can be caused by many things. To ensure your safety, are you also feeling any dizziness, blurred vision, or sudden weakness?",
+                    "extracted_symptoms": valid_symptoms,
+                    "current_top_prediction": top_disease,
+                    "confidence": round(float(confidence * 100), 2),
+                    "follow_up_symptoms": ["dizziness", "blurred_vision", "unsteadiness", "stiff_neck"]
+                }
+            elif len(valid_symptoms) < 3:
+                fallback_pool = ["headache", "fatigue", "nausea", "chills", "sweating", "stomach_pain", "cough"]
+                suggestions = [s for s in fallback_pool if s in symptoms_list and s not in valid_symptoms]
+                if len(suggestions) < 4 and len(symptoms_list) > 0:
+                    extra = [s for s in symptoms_list if s not in valid_symptoms and s not in suggestions]
+                    suggestions.extend(extra[:4 - len(suggestions)])
+                symptom_str = ", ".join([s.replace("_", " ") for s in valid_symptoms])
+                
+                return {
+                    "status": "needs_more_info",
+                    "message": f"You mentioned {symptom_str}. That is a good start, but many conditions share these early signs. To help me narrow down the diagnosis, are you also feeling any of these?",
+                    "follow_up_symptoms": suggestions[:4],
+                    "extracted_symptoms": valid_symptoms,
+                    "current_top_prediction": top_disease,
+                    "confidence": round(float(confidence * 100), 2)
+                }
 
-# ==========================================================
-# 🔒 AUTHENTICATION ENDPOINTS
-# ==========================================================
+        # Emergency Final Warning
+        if top_disease in critical_diseases and confidence > 0.40:
+            logs_collection.insert_one({"username": data.username, "symptoms": clean_text, "predicted_disease": top_disease, "status": "EMERGENCY", "timestamp": datetime.now()})
+            return {
+                "status": "CRITICAL",
+                "diagnosis": top_disease,
+                "confidence": round(float(confidence * 100), 2),
+                "message": f"EMERGENCY: Symptoms indicate {top_disease}. Seek immediate hospital care."
+            }
+
+        logs_collection.insert_one({"username": data.username, "symptoms": clean_text, "predicted_disease": top_disease, "status": "COMPLETED", "timestamp": datetime.now()})
+
+        # Phase 4: Treatment Ontology Mapping
+        db_keys = list(ayurveda_db.keys())
+        disease_data = {}
+        if db_keys:
+            best_match, score = process.extractOne(top_disease, db_keys)
+            if score >= 70:
+                disease_data = ayurveda_db[best_match]
+                
+        disease_medicines = []
+        if isinstance(disease_data, dict):
+            age_map = {"children": "child", "youth": "young", "elderly": "elder"}
+            mapped_age = age_map.get(data.age_category.lower(), "young")
+            mapped_gender = "female" if data.gender.lower() == "female" else "male"
+            mapped_severity = data.severity.lower() if data.severity.lower() in ["low", "medium", "high"] else "medium"
+            composite_key = f"{mapped_age}_{mapped_gender}_{mapped_severity}"
+            disease_medicines = disease_data.get(composite_key, [])
+            if not disease_medicines:
+                for k, v in disease_data.items():
+                    if isinstance(v, list) and len(v) > 0:
+                        disease_medicines = v
+                        break
+        elif isinstance(disease_data, list):
+            disease_medicines = disease_data
+                
+        if not disease_medicines:
+            disease_medicines = [
+                {"medicine_name": "Divya Ashwagandha Vati", "dosage": "1 tablet twice daily"},
+                {"medicine_name": "Triphala Churna", "dosage": "1 teaspoon at bedtime"}
+            ]
+        
+        # 🚀 EXTRACTING ACTUAL HERBS FROM THE JSON
+        ayurveda_protocol_list = []
+        user_age_cat = data.age_category.lower()
+        user_severity = data.severity.lower()
+
+        for med in disease_medicines:
+            if isinstance(med, dict):
+                base_dose = med.get("dosage", "Standard Dose")
+                name = med.get("medicine_name", "Ayurvedic Protocol")
+                
+                # Fetch the array of real herbs from your medicine_master.json
+                herbs = med.get("herb_sanskrit", [])
+                
+                # Clean up scraping artifacts like "6 nights" or "9 times"
+                if isinstance(herbs, list) and len(herbs) > 0:
+                    clean_herbs = [
+                        str(h).title() for h in herbs 
+                        if not any(char.isdigit() for char in str(h)) 
+                        and "days" not in str(h).lower() 
+                        and "times" not in str(h).lower()
+                        and len(str(h)) > 2
+                    ]
+                    
+                    # If clean herbs exist, overwrite the generic "Protocol" name with the real medicines
+                    if clean_herbs:
+                        if "Protocol" in name or name == "Ayurvedic Herb":
+                            name = ", ".join(clean_herbs[:5])  # e.g., "Amalaki, Bibhitaki, Bilva"
+                        else:
+                            name = f"{name} ({', '.join(clean_herbs[:3])})"
+            else:
+                base_dose = "Standard Dose"
+                name = str(med)
+
+            if user_age_cat in ["children", "elderly", "child", "elder"]:
+                if "Half Dose" not in base_dose:
+                    base_dose = f"Pediatric/Geriatric Scale (Half Dose): {base_dose}"
+            
+            if user_severity == "high":
+                if "INTENSIVE" not in base_dose:
+                    base_dose = f"INTENSIVE: {base_dose} (Requires Physician Monitoring)"
+
+            ayurveda_protocol_list.append({
+                "medicine_name": name,
+                "dosage": base_dose
+            })
+
+        mapped_gender = "female" if data.gender.lower() == "female" else "male"
+        if mapped_gender == "male": 
+            preg_warning = ["Not applicable for male patients."]
+        elif data.is_pregnant: 
+            preg_warning = ["Contraindicated during pregnancy. Consult a physician immediately."]
+        else: 
+            preg_warning = ["Safe for general use."]
+
+        return {
+            "status": "success",
+            "diagnosis": top_disease,
+            "confidence": round(float(confidence * 100), 2),
+            "extracted_symptoms": valid_symptoms,
+            "detected_severity": data.severity,
+            "prescription": {"pregnancy_status": preg_warning},
+            "ayurveda_protocol": ayurveda_protocol_list, 
+            "shap_explainability": feature_contributions 
+        }
+    
+    except Exception as e:
+        import traceback
+        print("\n❌ CRITICAL BACKEND CRASH DETECTED ❌")
+        traceback.print_exc() 
+        return {"status": "error", "message": f"Backend Error: {str(e)}"}
+
+# ==========================================
+# AUTHENTICATION & USER MANAGEMENT
+# ==========================================
 @app.post("/register")
 def register_user(user: UserRegister):
     if users_collection.find_one({"name": user.name}): raise HTTPException(status_code=400, detail="Username already exists")
     hashed_password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt())
     dosha_info = generate_ayurvedic_profile(user)
-    users_collection.insert_one({
-        "name": user.name, "password": hashed_password.decode('utf-8'), "age": user.age, "gender": user.gender,
-        "weight": user.weight, "height": user.height, "digestion": getattr(user, 'digestion', 'Balanced'),
-        "sleep": getattr(user, 'sleep', 'Moderate'), "weather": getattr(user, 'weather', 'Tolerant'),
-        "frame": getattr(user, 'frame', 'Medium'), "ayurvedic_profile": dosha_info  
-    })
+    users_collection.insert_one({**user.dict(), "password": hashed_password.decode('utf-8'), "ayurvedic_profile": dosha_info})
     return {"message": "User registered successfully!", "profile": dosha_info}
 
 @app.post("/login")
@@ -190,88 +446,38 @@ def login_user(user: UserLogin):
     db_user = users_collection.find_one({"name": user.name})
     if not db_user or not bcrypt.checkpw(user.password.encode('utf-8'), db_user["password"].encode('utf-8')):
         raise HTTPException(status_code=400, detail="Invalid username or password")
-    return {"message": "Login successful", "user": {"name": db_user.get("name"), "age": db_user.get("age"), "gender": db_user.get("gender"), "weight": db_user.get("weight"), "height": db_user.get("height"), "ayurvedic_profile": db_user.get("ayurvedic_profile")}}
+    return {"message": "Login successful", "user": {"name": db_user.get("name"), "ayurvedic_profile": db_user.get("ayurvedic_profile")}}
 
-
-
-
-# ==========================================================
-# 💳 REAL RAZORPAY PAYMENT GATEWAY ENDPOINTS
-# ==========================================================
-razorpay_client = razorpay.Client(auth=(os.getenv("RAZORPAY_KEY_ID"), os.getenv("RAZORPAY_KEY_SECRET")))
+# ==========================================
+# E-COMMERCE & FINANCIAL TRANSACTIONS
+# ==========================================
+try:
+    razorpay_client = razorpay.Client(auth=(os.getenv("RAZORPAY_KEY_ID"), os.getenv("RAZORPAY_KEY_SECRET")))
+except:
+    razorpay_client = None
 
 class OrderRequest(BaseModel):
-    amount: int
-    currency: str = "INR"
+    amount: int; currency: str = "INR"
 
 class PaymentVerification(BaseModel):
-    razorpay_order_id: str
-    razorpay_payment_id: str
-    razorpay_signature: str
-    cart_items: list
-    username: str
-    total_amount: int
+    razorpay_order_id: str; razorpay_payment_id: str; razorpay_signature: str; cart_items: list; username: str; total_amount: int
 
 @app.post("/create-order")
 def create_order(order: OrderRequest):
-    """Generates a secure order ID from Razorpay"""
-    try:
-        data = {
-            "amount": order.amount * 100, # Razorpay expects paise
-            "currency": order.currency,
-            "receipt": "receipt_" + str(datetime.now().timestamp())
-        }
-        payment_order = razorpay_client.order.create(data=data)
-        return {"order_id": payment_order["id"], "amount": payment_order["amount"]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"order_id": razorpay_client.order.create({"amount": order.amount * 100, "currency": order.currency, "receipt": "receipt_" + str(datetime.now().timestamp())})["id"]}
 
 @app.post("/verify-payment")
 def verify_payment(data: PaymentVerification):
-    """Verifies the transaction signature and saves the order to MongoDB"""
     try:
-        params_dict = {
-            'razorpay_order_id': data.razorpay_order_id,
-            'razorpay_payment_id': data.razorpay_payment_id,
-            'razorpay_signature': data.razorpay_signature
-        }
-        razorpay_client.utility.verify_payment_signature(params_dict)
-        
-        order_record = {
-            "username": data.username,
-            "order_id": data.razorpay_order_id,
-            "payment_id": data.razorpay_payment_id,
-            "amount_paid": data.total_amount,
-            "items": data.cart_items,
-            "status": "Paid & Processing",
-            "timestamp": datetime.now()
-        }
-        orders_collection.insert_one(order_record)
-        return {"status": "success", "message": "Payment verified and order placed!"}
-    except razorpay.errors.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid Payment Signature")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        razorpay_client.utility.verify_payment_signature({'razorpay_order_id': data.razorpay_order_id, 'razorpay_payment_id': data.razorpay_payment_id, 'razorpay_signature': data.razorpay_signature})
+        orders_collection.insert_one({"username": data.username, "order_id": data.razorpay_order_id, "amount_paid": data.total_amount, "status": "Paid", "timestamp": datetime.now()})
+        return {"status": "success"}
+    except: raise HTTPException(status_code=400, detail="Invalid Signature")
 
-
-# ==========================================================
-# 👑 ADMIN PANEL ENDPOINTS
-# ==========================================================
 @app.get("/admin/orders")
 def get_all_orders():
-    """Fetches all successful payments/orders for the Admin."""
-    orders = list(orders_collection.find({}, {"_id": 0}).sort("timestamp", -1))
-    # Clean up dates for JSON serialization
-    for order in orders:
-        if "timestamp" in order and isinstance(order["timestamp"], datetime):
-            order["timestamp"] = order["timestamp"].strftime("%Y-%m-%d %H:%M")
-    return {"orders": orders}
+    return {"orders": [{**o, "timestamp": o["timestamp"].strftime("%Y-%m-%d %H:%M") if isinstance(o.get("timestamp"), datetime) else o.get("timestamp")} for o in list(orders_collection.find({}, {"_id": 0}).sort("timestamp", -1))]}
 
 @app.get("/admin/logs")
 def get_all_logs():
-    """Fetches all AI Diagnosis interactions for the Admin."""
-    logs = list(logs_collection.find({}, {"_id": 0}).sort("timestamp", -1))
-    for log in logs:
-        if "timestamp" in log and isinstance(log["timestamp"], datetime):
-            log["timestamp"] = log["timestamp"].strftime("%Y-%m-%d %H:%M")
-    return {"logs": logs}
+    return {"logs": [{**l, "timestamp": l["timestamp"].strftime("%Y-%m-%d %H:%M") if isinstance(l.get("timestamp"), datetime) else l.get("timestamp")} for l in list(logs_collection.find({}, {"_id": 0}).sort("timestamp", -1))]}

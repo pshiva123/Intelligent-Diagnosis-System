@@ -1,0 +1,98 @@
+[
+  {
+    "source_label": "Charaka - Prameha Chikitsa",
+    "source_url": "https://www.easyayurveda.com/2015/08/24/charaka-prameha-chikitsa/",
+    "source_category": "classical",
+    "evidence_text": "Treatment of Urinary Disorders Including Diabetes अथातः प्रमेहचिकित्सितं व्याख्यास्यामः||१|| इति ह स्माह भगवानात्रेयः||२|| athātaḥ pramehacikitsitaṃ vyākhyāsyāmaḥ||1|| iti ha smāha bhagavānātreyaḥ||2|| We shall now expound the chapter on the treatment or Prameha ( urinary disorders including diabetes).",
+    "diseases": [
+      "Diabetes"
+    ],
+    "herbs_found": [
+      "diabetes",
+      "urinary disorders"
+    ],
+    "dosha_type": "tridosha",
+    "severity": "medium",
+    "constraints": {
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    },
+    "confidence_score": 0.71
+  },
+  {
+    "source_label": "Charaka - Kushtha Chikitsa",
+    "source_url": "https://www.easyayurveda.com/2015/09/02/charaka-kushta-chikitsa/",
+    "source_category": "classical",
+    "evidence_text": "(Jangala Mamsa) This recipe when administered for 6 nights (days) cures Kustha, Shopha (oedema), Grahani Dosha (sprue syndrome), Arsas (piles), Mutra Krichra (dysuria), Halimaka (serious type of Jaundice), Pain in cardiac and urinary bladder region and Vishamajvara (Recurrent fever) {62- 64} Mustadi Churna These drugs taken in equal quantities is made of a powder Musta – Nut grass (root) – Cyperus rotundus Trikatu – Ginger, black pepper, long pepper, Triphala (haritaki, Bibhitaki and Amalaki), Manjistha – Rubia cordifolia Devadaru – Cedrus deodara, Dashamoola (bilva, syonaka, Gambhari, Patali, Ganikarika, Salaparni, Prsniparni, Brhati, Kantakari and Goksura) Bark of Saptacchada (Saptaparna) – Alstonia scholaris – Stem bark Bark of Nimba – Neem Vishala – Citrullus colocynthis Chitraka – Leadwort – Plumbago zeylanica and Murva – Marsdenia tenacissima – Root This powder is mixed with 9 times of Saktu (roasted corn flour) and be taken by the patient mixed with honey and ghee every day.",
+    "diseases": [
+      "Jaundice"
+    ],
+    "herbs_found": [
+      "6 nights ( days",
+      "9 times",
+      "amalaki",
+      "bibhitaki",
+      "bilva",
+      "black pepper",
+      "cardiac and",
+      "churna",
+      "cyperus rotundus trikatu",
+      "dashamoola",
+      "dysuria",
+      "ganikarika",
+      "ginger",
+      "halimaka",
+      "haritaki",
+      "leadwort",
+      "long pepper",
+      "marsdenia",
+      "murva",
+      "musta",
+      "mustadi",
+      "mutra krichra",
+      "neem",
+      "pain",
+      "plumbago zeylanica",
+      "powder",
+      "quantities",
+      "saktu",
+      "saptacchada",
+      "shopha",
+      "trikatu",
+      "triphala",
+      "urinary bladder region",
+      "vishamajvara"
+    ],
+    "dosha_type": "vata",
+    "severity": "medium",
+    "constraints": {
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    },
+    "confidence_score": 0.99
+  },
+  {
+    "source_label": "Charaka - Grahani Chikitsa",
+    "source_url": "https://www.easyayurveda.com/2015/10/15/charaka-grahani-chikitsa/",
+    "source_category": "classical",
+    "evidence_text": "When associated with kapha it gives rise to Yakshma – tuberculosis, Peenasa – chronic rhinitis, coryza Meha – urinary diseases, diabetes and such other morbidity.",
+    "diseases": [
+      "Diabetes"
+    ],
+    "herbs_found": [
+      "diabetes",
+      "kapha",
+      "peenasa"
+    ],
+    "dosha_type": "kapha",
+    "severity": "medium",
+    "constraints": {
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    },
+    "confidence_score": 0.79
+  }
+]

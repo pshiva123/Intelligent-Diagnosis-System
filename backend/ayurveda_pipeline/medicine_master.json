@@ -1,0 +1,320 @@
+{
+  "Diabetes": [
+    {
+      "medicine_name": "Diabetes Ayurvedic Protocol",
+      "formulation_type": "churna",
+      "herb_sanskrit": [
+        "diabetes",
+        "urinary disorders",
+        "kapha",
+        "peenasa"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Bronchial Asthma": [
+    {
+      "medicine_name": "Bronchial Asthma Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Arthritis": [
+    {
+      "medicine_name": "Arthritis Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Migraine": [
+    {
+      "medicine_name": "Migraine Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "GERD": [
+    {
+      "medicine_name": "GERD Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Jaundice": [
+    {
+      "medicine_name": "Jaundice Ayurvedic Protocol",
+      "formulation_type": "kwatha",
+      "herb_sanskrit": [
+        "6 nights ( days",
+        "9 times",
+        "amalaki",
+        "bibhitaki",
+        "bilva",
+        "black pepper"
+      ],
+      "dosha_type": "vata",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Urinary tract infection": [
+    {
+      "medicine_name": "Urinary tract infection Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Psoriasis": [
+    {
+      "medicine_name": "Psoriasis Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Common Cold": [
+    {
+      "medicine_name": "Common Cold Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Typhoid": [
+    {
+      "medicine_name": "Typhoid Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Dengue": [
+    {
+      "medicine_name": "Dengue Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ],
+  "Malaria": [
+    {
+      "medicine_name": "Malaria Ayurvedic Protocol",
+      "formulation_type": "vati",
+      "herb_sanskrit": [
+        "guduchi",
+        "triphala"
+      ],
+      "dosha_type": "tridosha",
+      "dosage": "Standard protocol - twice daily after meals",
+      "allowed_ages": [
+        "all"
+      ],
+      "allowed_genders": [
+        "all"
+      ],
+      "allowed_severities": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": true
+    }
+  ]
+}

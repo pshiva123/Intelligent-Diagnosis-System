@@ -1,0 +1,32 @@
+{
+  "Diabetes": [
+    {
+      "medicine_name": "Nisha Amalaki Churna",
+      "formulation_type": "churna",
+      "herb_sanskrit": ["haridra", "amalaki"],
+      "dosha_type": "kapha_pitta",
+      "dosage": "3g twice daily after meals with warm water",
+      "allowed_ages": ["middle", "elder"],
+      "allowed_genders": ["all"],
+      "allowed_severities": ["low", "medium", "high"],
+      "child_safe": false,
+      "elderly_safe": true,
+      "pregnant_safe": false
+    }
+  ],
+  "Fungal infection": [
+    {
+      "medicine_name": "Neem Churna",
+      "formulation_type": "churna",
+      "herb_sanskrit": ["neem", "haridra"],
+      "dosha_type": "pitta_kapha",
+      "dosage": "3g twice daily with warm water",
+      "allowed_ages": ["young", "middle", "elder"],
+      "allowed_genders": ["all"],
+      "allowed_severities": ["low", "medium", "high"],
+      "child_safe": true,
+      "elderly_safe": true,
+      "pregnant_safe": false
+    }
+  ]
+}

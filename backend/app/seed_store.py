@@ -19,16 +19,36 @@ def seed_database():
     backend_dir = os.path.dirname(current_dir)
     project_root = os.path.dirname(backend_dir)
     
-    kb_path = os.path.join(backend_dir, "data", "ayurveda_kb_final.json")
+    kb_structured_path = os.path.join(backend_dir, "ayurveda_pipeline", "output", "ayurveda_kb_structured.json")
+    kb_flat_path = os.path.join(backend_dir, "ayurveda_pipeline", "output", "ayurveda_kb_final.json")
     frontend_img_dir = os.path.join(project_root, "frontend", "public", "images")
-    
-    with open(kb_path, "r", encoding="utf-8") as f:
-        ayurveda_db = json.load(f)
 
-    unique_medicines = set()
-    for kb_data in ayurveda_db.values():
-        for med in kb_data.get("medicine_names", []):
-            if med.strip(): unique_medicines.add(med.strip())
+    if os.path.exists(kb_structured_path):
+        with open(kb_structured_path, "r", encoding="utf-8") as f:
+            ayurveda_db = json.load(f)
+        unique_medicines = set()
+        for disease_data in ayurveda_db.values():
+            if not isinstance(disease_data, dict):
+                continue
+            for combo_records in disease_data.values():
+                if not isinstance(combo_records, list):
+                    continue
+                for med in combo_records:
+                    med_name = str(med.get("medicine_name", "")).strip()
+                    if med_name:
+                        unique_medicines.add(med_name)
+    elif os.path.exists(kb_flat_path):
+        with open(kb_flat_path, "r", encoding="utf-8") as f:
+            ayurveda_flat = json.load(f)
+        unique_medicines = set()
+        for row in ayurveda_flat:
+            med_name = str(row.get("medicine_name", "")).strip()
+            if med_name:
+                unique_medicines.add(med_name)
+    else:
+        raise FileNotFoundError(
+            "No KB found. Run ayurveda_pipeline/run_all.py first to generate output files."
+        )
                 
     med_list = sorted(list(unique_medicines))
     
