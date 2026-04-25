@@ -25,5 +25,4 @@ dist-ssr
 
 # ignoring .env
 .env
-.env.local
-.env.*.local
+backend/.env
